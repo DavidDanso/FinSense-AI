@@ -1,0 +1,11 @@
+pandas
+python-dotenv
+langchain_openai 
+langchain_core
+python-dotenv
+streamlit
+langchain_community
+pypdf
+chromadb
+PyPDF2
+faiss-cpu
