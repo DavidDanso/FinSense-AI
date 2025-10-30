@@ -52,7 +52,7 @@ if uploaded_file is not None:
             
             # Preview
             st.subheader("Data Preview")
-            st.dataframe(df.head(10), use_container_width=True)
+            st.dataframe(df.head(10), width='stretch')
             
             # Confirm and process button
             if st.button("✓ Confirm and Process", type="primary"):
