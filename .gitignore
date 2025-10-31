@@ -18,6 +18,9 @@ env/
 ENV/
 .venv
 
+vectorstore/
+vectorstores/
+
 # Distribution / packaging
 build/
 develop-eggs/
