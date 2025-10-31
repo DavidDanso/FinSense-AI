@@ -103,7 +103,7 @@ if st.session_state.get('processed', False):
     
     # Show cleaned data
     with st.expander("View Cleaned Data"):
-        st.dataframe(df_clean, use_container_width=True)
+        st.dataframe(df_clean, width='stretch')
 else:
     st.info("👆 Please upload a CSV file to begin")
     
@@ -111,4 +111,3 @@ else:
     with st.expander("Need a template?"):
         st.write("Your CSV should have these columns:")
         st.code("date,merchant,amount,category", language="text")
-        st.write("See `data/sample_template.csv` for an example")

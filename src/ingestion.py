@@ -31,9 +31,6 @@ def parse_and_clean_csv(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
     # Drop rows with invalid dates or amounts
     df_clean = df_clean.dropna(subset=['date', 'amount'])
     
-    # Optional: drop negative amounts (uncomment if needed)
-    # df_clean = df_clean[df_clean['amount'] >= 0]
-    
     # Mark suspicious transactions (negative amounts)
     df_clean['is_suspicious'] = df_clean['amount'] < 0
     
