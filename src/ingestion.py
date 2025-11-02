@@ -11,12 +11,6 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _clean_amount_column(series: pd.Series) -> pd.Series:
-    """
-    Clean amount-like values:
-    - remove common currency symbols and thousands separators
-    - convert parentheses to negative
-    - coerce to numeric (NaN for unparsable)
-    """
     def clean_value(v: Any):
         if pd.isna(v):
             return None
@@ -41,15 +35,6 @@ def _clean_amount_column(series: pd.Series) -> pd.Series:
 
 
 def parse_and_clean_csv(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """
-    Parse and clean transaction data.
-
-    Args:
-        df: Raw DataFrame from CSV
-
-    Returns:
-        Tuple of (cleaned_df, summary_stats)
-    """
     if not isinstance(df, pd.DataFrame):
         raise ValueError("Input must be a pandas DataFrame")
 
@@ -108,15 +93,6 @@ def parse_and_clean_csv(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]
 
 
 def validate_csv_structure(df: pd.DataFrame) -> Tuple[bool, str]:
-    """
-    Validate that CSV has required columns (case-insensitive).
-
-    Args:
-        df: DataFrame to validate
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
     if not isinstance(df, pd.DataFrame):
         return False, "Uploaded file could not be parsed as a CSV table."
 

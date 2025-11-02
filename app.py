@@ -146,7 +146,7 @@ if uploaded_file is not None:
                     except Exception as e:
                         st.error(f"Error creating embeddings: {str(e)}")
 
-                st.success("✅ All processing completed!")
+                st.success(f"✅ Indexing complete! All {len(df)} records processed.")
                 # try:
                     # st.experimental_rerun()
                 # except Exception:
