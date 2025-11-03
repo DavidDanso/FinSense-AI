@@ -147,10 +147,6 @@ if uploaded_file is not None:
                         st.error(f"Error creating embeddings: {str(e)}")
 
                 st.success(f"✅ Indexing complete! All {len(df)} records processed.")
-                # try:
-                    # st.experimental_rerun()
-                # except Exception:
-                    # st.info("Processing completed — please refresh the page if UI does not update.")
 
     except Exception as e:
         st.error(f"Error reading CSV: {str(e)}")
@@ -198,6 +194,35 @@ if st.session_state.get('processed', False):
 
     with st.expander("View Cleaned Data"):
         st.dataframe(df_clean, width='stretch')
+
+    # --- Milestone 5: Query input UI start ---
+    st.divider()
+    st.header("💬 Ask a question about your spending")
+
+    # Input field for user question
+    user_question = st.text_input("Ask a question about your spending…", "")
+
+    # Submit button
+    submit_button = st.button("Submit")
+
+    # Handle submit
+    if submit_button and user_question.strip() != "":
+        with st.spinner("Processing your question…"):
+            # Placeholder: here you will call retrieval + narrative generation
+            import time
+            time.sleep(2)  # simulate processing delay
+            
+            # Simulated answer
+            answer = f"Here is a narrative answer to your question: \"{user_question}\""
+
+            st.success("Answer ready!")
+            st.write(answer)
+
+    else:
+        if submit_button:
+            st.warning("Please enter a question before submitting.")
+    # --- Milestone 5: Query input UI end ---
+
 else:
     st.info("👆 Please upload a CSV file to begin")
 

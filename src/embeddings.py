@@ -7,17 +7,17 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 import inspect
+import math
 
 load_dotenv()
 
 
 class EmbeddingManager:
     def __init__(self, google_api_key: str):
-        """Initialize the embedding manager with Google's Generative AI model."""
+        """Initialize with Google embeddings and placeholder for vector store."""
         if not google_api_key:
             raise ValueError("google_api_key must be provided to EmbeddingManager")
 
-        # NOTE: verify model name & constructor args for your installed SDK
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-001",
             google_api_key=google_api_key,
@@ -26,7 +26,7 @@ class EmbeddingManager:
         self.vector_store = None
 
     def _serialize_date(self, date_value: Any) -> Any:
-        """Convert various date types to ISO string or return None."""
+        """Convert date or timestamp types to ISO string (or fallback)."""
         if date_value is None:
             return None
         if pd.isna(date_value):
@@ -40,7 +40,7 @@ class EmbeddingManager:
             return str(date_value)
 
     def _serialize_amount(self, amount_value: Any) -> Any:
-        """Convert numeric types (numpy, pandas, strings) to plain Python float/int or None."""
+        """Convert numeric or string amount to float or int, or None."""
         if amount_value is None:
             return None
         try:
@@ -51,49 +51,80 @@ class EmbeddingManager:
         except Exception:
             return None
 
-    def create_embeddings(self, data: List[Dict[Any, Any]]) -> None:
+    def _make_text_for_embedding(self, item: Dict[Any, Any]) -> str:
+        """Compose a short text from merchant + description for embedding."""
+        merchant = item.get("merchant", "") or ""
+        description = item.get("description", "") or ""
+        text = f"{merchant} {description}".strip()
+        if text == "":
+            text = "unknown"
+        return text
+
+    def _make_metadata(self, item: Dict[Any, Any]) -> Dict[str, Any]:
+        """Prepare metadata dict for embedding record."""
+        metadata = {
+            "date": self._serialize_date(item.get("date", None)),
+            "merchant": str(item.get("merchant", "")),
+            "amount": self._serialize_amount(item.get("amount", None))
+        }
+        # you can add more metadata fields as needed
+        return metadata
+
+    def create_embeddings(
+        self,
+        data: List[Dict[Any, Any]],
+        batch_size: int = 100,
+        persist_path: str = None
+    ) -> None:
         """
-        Generate embeddings for transaction data and store them in FAISS.
-        Tries both common `from_texts` signatures to maximize compatibility.
+        Generate embeddings in batches for large data.
+        Optionally persist vector store incrementally if persist_path given.
         """
-        texts: List[str] = []
-        metadatas: List[Dict[str, Any]] = []
+        n = len(data)
+        if n == 0:
+            return
 
-        for item in data:
-            merchant = item.get("merchant", "") or ""
-            description = item.get("description", "") or ""
-            date_raw = item.get("date", None)
-            amount_raw = item.get("amount", None)
+        num_batches = math.ceil(n / batch_size)
+        for i in range(num_batches):
+            start = i * batch_size
+            end = min((i + 1) * batch_size, n)
+            batch = data[start:end]
 
-            text = f"{str(merchant)} {str(description)}".strip() or "unknown"
-            texts.append(text)
+            # Prepare texts & metadata lists
+            texts = [self._make_text_for_embedding(item) for item in batch]
+            metadatas = [self._make_metadata(item) for item in batch]
 
-            metadata = {
-                "date": self._serialize_date(date_raw),
-                "merchant": str(merchant),
-                "amount": self._serialize_amount(amount_raw),
-            }
-            metadatas.append(metadata)
+            # Add embeddings & metadata to vector_store
+            if self.vector_store is None:
+                # First batch: create vector_store from texts
+                try:
+                    self.vector_store = FAISS.from_texts(
+                        texts=texts,
+                        metadatas=metadatas,
+                        embeddings=self.embeddings,
+                    )
+                except TypeError:
+                    # fallback signature
+                    self.vector_store = FAISS.from_texts(
+                        texts, self.embeddings, metadatas=metadatas
+                    )
+            else:
+                # For subsequent batches: add more docs
+                self.vector_store.add_texts(
+                    texts=texts,
+                    metadatas=metadatas
+                )
 
-        # Attempt safe invocation of FAISS.from_texts for different langchain versions
-        # Try keyword-based call first (recommended), fall back to positional if needed.
-        try:
-            self.vector_store = FAISS.from_texts(
-                texts=texts,
-                metadatas=metadatas,
-                embeddings=self.embeddings,
-            )
-        except TypeError:
-            # fallback to older/alternate signature that expects positional embedding arg
-            self.vector_store = FAISS.from_texts(texts, self.embeddings, metadatas=metadatas)
+            # Persist after each batch if path provided
+            if persist_path:
+                self.save_vector_store(persist_path)
 
-        print(f"Indexing complete, {len(texts)} records processed")
+            print(f"Batch {i+1}/{num_batches} done: items {start}–{end - 1}")
 
     def save_vector_store(self, path: str) -> None:
-        """Save the FAISS vector store to disk atomically."""
+        """Save FAISS vector store to disk atomically."""
         if self.vector_store is None:
-            raise RuntimeError("No vector store available to save.")
-
+            raise RuntimeError("No vector store to save.")
         path = os.path.abspath(path)
         parent = os.path.dirname(path) or "."
         os.makedirs(parent, exist_ok=True)
@@ -111,28 +142,31 @@ class EmbeddingManager:
         except Exception as e:
             if os.path.exists(tmp_dir):
                 shutil.rmtree(tmp_dir)
-            raise RuntimeError(f"Failed to save vector store to '{path}': {e}") from e
+            raise RuntimeError(f"Failed to save vector store: {e}") from e
 
     def load_vector_store(self, path: str) -> None:
-        """Load the FAISS vector store from disk with validation and clear error messages."""
+        """Load existing FAISS vector store from disk, handling compatibility."""
         path = os.path.abspath(path)
         if not os.path.isdir(path):
-            raise FileNotFoundError(f"Vector store directory not found at: {path}")
-
+            raise FileNotFoundError(f"Vector store not found: {path}")
         if not any(os.scandir(path)):
-            raise RuntimeError(f"Vector store directory is empty/corrupted: {path}")
+            raise RuntimeError(f"Vector store directory empty or corrupt: {path}")
 
         try:
-            # Some versions accept `embeddings=`; others may expect `embedding` or positional.
             sig = inspect.signature(FAISS.load_local)
             if "embeddings" in sig.parameters:
                 self.vector_store = FAISS.load_local(path, embeddings=self.embeddings)
             elif "embedding" in sig.parameters:
                 self.vector_store = FAISS.load_local(path, embedding=self.embeddings)
             else:
-                # fallback positional (rare)
                 self.vector_store = FAISS.load_local(path, self.embeddings)
         except Exception as e:
             raise RuntimeError(
-                f"Failed to load vector store from '{path}'. Directory may be corrupted or incompatible. Original error: {e}"
+                f"Failed to load vector store from '{path}': {e}"
             ) from e
+
+    def get_retriever(self, **kwargs):
+        """Return a retriever from the FAISS vector store."""
+        if self.vector_store is None:
+            raise RuntimeError("Vector store is not loaded/initialized.")
+        return self.vector_store.as_retriever(**kwargs)
