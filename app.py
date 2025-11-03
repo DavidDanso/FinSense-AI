@@ -3,6 +3,8 @@ import pandas as pd
 import os
 from src.ingestion import parse_and_clean_csv, validate_csv_structure
 from src.embeddings import EmbeddingManager
+from src.retrieval import RetrieverService
+from src.llm_chain import build_qa_chain, answer_question
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,25 +26,27 @@ if 'summary' not in st.session_state:
     st.session_state['summary'] = None
 if 'vector_store_path' not in st.session_state:
     st.session_state['vector_store_path'] = None
+if 'embedding_manager' not in st.session_state:
+    st.session_state['embedding_manager'] = None
+if 'qa_chain' not in st.session_state:
+    st.session_state['qa_chain'] = None
+if 'retriever_service' not in st.session_state:
+    st.session_state['retriever_service'] = None
 
 def _choose_currency(df_clean: pd.DataFrame, summary: dict) -> str:
     """Choose currency from df_clean or fall back to USD ($)."""
-    # 1) Check dataframe column 'currency' (case-insensitive)
     if df_clean is not None:
         cols = [c.lower() for c in df_clean.columns]
         if 'currency' in cols:
-            # pick first non-null currency value
             cur_vals = df_clean.iloc[:, cols.index('currency')].dropna().astype(str).str.strip()
             if len(cur_vals) > 0:
                 val = cur_vals.iloc[0]
                 if val:
                     return val
-    # 2) Check summary for a currency field (if any)
     if summary and isinstance(summary, dict):
         cur = summary.get('currency') or summary.get('curr') or summary.get('ccy')
         if cur:
             return str(cur)
-    # 3) default
     return '$'
 
 def _format_amount(amount: float, currency: str) -> str:
@@ -52,14 +56,11 @@ def _format_amount(amount: float, currency: str) -> str:
     cur = str(currency).strip()
     if cur == '':
         cur = '$'
-    # If currency contains common symbol characters, prefix directly
     symbols = set('$₵€£¥¢₹')
     if any((ch in symbols) for ch in cur):
         return f"{cur}{amount:,.2f}"
-    # If short code like USD, GHS, etc.
     if len(cur) <= 3:
         return f"{cur.upper()} {amount:,.2f}"
-    # Otherwise use as label prefix
     return f"{cur} {amount:,.2f}"
 
 # Title and welcome
@@ -88,7 +89,6 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     try:
-        # Robust CSV read with possible encodings; try default then latin-1
         try:
             df = pd.read_csv(uploaded_file)
         except Exception:
@@ -97,57 +97,45 @@ if uploaded_file is not None:
 
         st.success("✅ File uploaded successfully!")
 
-        # Validate CSV structure (case-insensitive)
         is_valid, error_msg = validate_csv_structure(df)
-
         if not is_valid:
             st.error(f"❌ {error_msg}")
             st.info("Please ensure your CSV has the required columns: date, merchant, amount")
         else:
-            # Show file info
             st.write(f"**Rows:** {len(df)} | **Columns:** {len(df.columns)}")
-
-            # Preview
             st.subheader("Data Preview")
             st.dataframe(df.head(10), width='stretch')
 
-            # Confirm and process button
             if st.button("✓ Confirm and Process", type="primary"):
                 with st.spinner("Processing and cleaning data..."):
-                    # Parse and clean data
                     try:
                         df_clean, summary = parse_and_clean_csv(df)
                     except Exception as e:
                         st.error(f"Error processing CSV: {e}")
                         st.stop()
 
-                    # Store clean data & summary
                     st.session_state['df_clean'] = df_clean
                     st.session_state['summary'] = summary
                     st.session_state['processed'] = True
 
-                    # Initialize embedding manager and batch embeddings
                     try:
                         with st.spinner("Creating embeddings..."):
                             embedding_manager = EmbeddingManager(GOOGLE_API_KEY)
+                            st.session_state['embedding_manager'] = embedding_manager
 
                             data = df_clean.to_dict('records')
 
-                            # Prepare vector store storage path
                             base_dir = os.path.join(os.getcwd(), "data", "vectorstores")
                             os.makedirs(base_dir, exist_ok=True)
                             vector_store_path = os.path.join(base_dir, "default_index")
 
-                            # ======= Modified line: use batch and persist_path ========
                             embedding_manager.create_embeddings(
                                 data,
                                 batch_size=200,
                                 persist_path=vector_store_path
                             )
 
-                            # Optional fallback save (should be safe)
                             embedding_manager.save_vector_store(vector_store_path)
-                            # ============================================================
 
                             st.session_state['vector_store_path'] = vector_store_path
                             st.success("✅ Embeddings created and stored successfully!")
@@ -159,15 +147,13 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error reading CSV: {str(e)}")
 
-# Show summary if data has been processed
+# After processing, show summary & chat UI
 if st.session_state.get('processed', False):
     st.divider()
     st.header("📊 Data Summary")
 
     summary = st.session_state['summary'] or {}
     df_clean = st.session_state['df_clean']
-
-    # determine currency
     currency = _choose_currency(df_clean, summary)
 
     col1, col2, col3, col4 = st.columns(4)
@@ -200,7 +186,7 @@ if st.session_state.get('processed', False):
     with st.expander("View Cleaned Data"):
         st.dataframe(df_clean, width='stretch')
 
-    # Query UI (Milestone 5 + ready for Milestone 6)
+    # Query UI
     st.divider()
     st.header("💬 Ask a question about your spending")
 
@@ -209,15 +195,27 @@ if st.session_state.get('processed', False):
 
     if submit_button and user_question.strip() != "":
         with st.spinner("Processing your question…"):
-            # Replace placeholder with your retrieval / answer logic
-            # e.g. answer, retrieved_df = answer_question(user_question)
-            # st.write(answer)
-            # st.dataframe(retrieved_df)
-            import time
-            time.sleep(2)
-            answer = f"Here is a narrative answer to your question: \"{user_question}\""
-            st.success("Answer ready!")
-            st.write(answer)
+            try:
+                embedding_manager = st.session_state['embedding_manager']
+                vector_store_path = st.session_state['vector_store_path']
+                # Setup retriever service
+                retriever_service = RetrieverService(embedding_manager, k=5)
+                st.session_state['retriever_service'] = retriever_service
+                retriever = retriever_service.get_retriever()
+                # Build QA chain
+                qa_chain = build_qa_chain(retriever)
+                st.session_state['qa_chain'] = qa_chain
+                # Get answer
+                answer = answer_question(qa_chain, user_question)
+                st.success("Answer ready!")
+                st.write(answer)
+                # Show relevant transactions
+                df_retrieved = retriever_service.retrieve(user_question)
+                if not df_retrieved.empty:
+                    st.subheader("Relevant Transactions")
+                    st.dataframe(df_retrieved)
+            except Exception as e:
+                st.error(f"Failed to answer question: {e}")
     else:
         if submit_button:
             st.warning("Please enter a question before submitting.")
