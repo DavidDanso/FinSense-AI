@@ -1,3 +1,5 @@
+#app.py
+
 import streamlit as st
 import pandas as pd
 import os
@@ -147,19 +149,16 @@ if st.session_state['processed']:
         with st.spinner("Generating answer..."):
             try:
                 embedding_manager = st.session_state['embedding_manager']
-                retriever_service = RetrieverService(embedding_manager, k=5)
-                retriever = retriever_service.get_retriever()
-
-                raw_docs = retriever.invoke(user_question)
-                safe_docs = []
-                for doc in raw_docs:
-                    md = doc.metadata or {}
-                    safe_md = {
-                        "merchant": md.get("merchant", ""),
-                        "amount": md.get("amount", 0.0),
-                        "date": md.get("date", "")
-                    }
-                    safe_docs.append(Document(page_content=doc.page_content, metadata=safe_md))
+                df_clean = st.session_state['df_clean']
+                summary = st.session_state['summary']
+                
+                retriever_service = RetrieverService(
+                    embedding_manager=embedding_manager,
+                    df_clean=df_clean,
+                    summary=summary
+                )
+                
+                safe_docs, df_retrieved = retriever_service.retrieve(user_question)
 
                 chain = build_chain_only()
                 answer = answer_with_docs(chain, safe_docs, user_question)
@@ -167,7 +166,6 @@ if st.session_state['processed']:
                 st.success("✅ Answer ready")
                 st.write(answer)
 
-                df_retrieved = retriever_service.retrieve(user_question)
                 if not df_retrieved.empty:
                     st.subheader("Relevant Transactions")
                     st.dataframe(df_retrieved)
