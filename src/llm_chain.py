@@ -1,6 +1,4 @@
-# llm_chain.py
-
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_classic.chains.retrieval import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
@@ -12,11 +10,10 @@ def build_qa_chain(retriever, llm: Any = None) -> Any:
     if llm is None:
         llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0)
 
-    # Use “input” in the human template, because create_retrieval_chain uses input key
     chat_prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a financial assistant. Use the transaction data context to answer user questions clearly and accurately."),
+        ("system", "You are a financial assistant. Use transaction data (merchant, amount, date) to answer questions. When the question asks totals or sums, compute using the amount metadata."),
         ("human", """
-Here are the relevant transactions:
+Here are the transaction records:
 {context}
 
 Question:
@@ -24,9 +21,20 @@ Question:
 """)
     ])
 
+    document_prompt = PromptTemplate(
+        input_variables=["page_content", "metadata"],
+        template=(
+            "Merchant: {metadata[merchant]}\n"
+            "Amount: {metadata[amount]}\n"
+            "Date: {metadata[date]}\n"
+            "Note: {page_content}"
+        )
+    )
+
     combine_chain = create_stuff_documents_chain(
         llm=llm,
-        prompt=chat_prompt
+        prompt=chat_prompt,
+        document_prompt=document_prompt
     )
 
     retrieval_chain = create_retrieval_chain(
@@ -37,6 +45,5 @@ Question:
     return retrieval_chain
 
 def answer_question(chain: Any, question: str) -> str:
-    # Pass the question under key "input"
     result: Dict = chain.invoke({"input": question})
     return result.get("answer", "No answer returned.")
