@@ -111,7 +111,7 @@ if uploaded_file is not None:
             st.subheader("Data Preview")
             st.dataframe(df.head(10), width='stretch')
 
-            # Confirm and process button (no invalid kwargs)
+            # Confirm and process button
             if st.button("✓ Confirm and Process", type="primary"):
                 with st.spinner("Processing and cleaning data..."):
                     # Parse and clean data
@@ -121,25 +121,33 @@ if uploaded_file is not None:
                         st.error(f"Error processing CSV: {e}")
                         st.stop()
 
-                    # Store in session state
+                    # Store clean data & summary
                     st.session_state['df_clean'] = df_clean
                     st.session_state['summary'] = summary
                     st.session_state['processed'] = True
 
-                    # Initialize embedding manager and create embeddings
+                    # Initialize embedding manager and batch embeddings
                     try:
                         with st.spinner("Creating embeddings..."):
                             embedding_manager = EmbeddingManager(GOOGLE_API_KEY)
 
-                            # Convert DataFrame to list of dictionaries for embedding
                             data = df_clean.to_dict('records')
-                            embedding_manager.create_embeddings(data)
 
-                            # Save vector store to a deterministic local path
+                            # Prepare vector store storage path
                             base_dir = os.path.join(os.getcwd(), "data", "vectorstores")
                             os.makedirs(base_dir, exist_ok=True)
                             vector_store_path = os.path.join(base_dir, "default_index")
+
+                            # ======= Modified line: use batch and persist_path ========
+                            embedding_manager.create_embeddings(
+                                data,
+                                batch_size=200,
+                                persist_path=vector_store_path
+                            )
+
+                            # Optional fallback save (should be safe)
                             embedding_manager.save_vector_store(vector_store_path)
+                            # ============================================================
 
                             st.session_state['vector_store_path'] = vector_store_path
                             st.success("✅ Embeddings created and stored successfully!")
@@ -159,11 +167,10 @@ if st.session_state.get('processed', False):
     summary = st.session_state['summary'] or {}
     df_clean = st.session_state['df_clean']
 
-    # determine currency to use
+    # determine currency
     currency = _choose_currency(df_clean, summary)
 
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
         st.metric("Total Transactions", summary.get('total_transactions', 0))
     with col2:
@@ -174,10 +181,8 @@ if st.session_state.get('processed', False):
         st.metric("Suspicious", summary.get('suspicious_count', 0))
 
     col5, col6 = st.columns(2)
-
     total_amount = float(summary.get('total_amount', 0.0) or 0.0)
     avg_amount = float(summary.get('avg_amount', 0.0) or 0.0)
-
     with col5:
         st.metric("Total Amount", _format_amount(total_amount, currency))
     with col6:
@@ -195,37 +200,30 @@ if st.session_state.get('processed', False):
     with st.expander("View Cleaned Data"):
         st.dataframe(df_clean, width='stretch')
 
-    # --- Milestone 5: Query input UI start ---
+    # Query UI (Milestone 5 + ready for Milestone 6)
     st.divider()
     st.header("💬 Ask a question about your spending")
 
-    # Input field for user question
     user_question = st.text_input("Ask a question about your spending…", "")
-
-    # Submit button
     submit_button = st.button("Submit")
 
-    # Handle submit
     if submit_button and user_question.strip() != "":
         with st.spinner("Processing your question…"):
-            # Placeholder: here you will call retrieval + narrative generation
+            # Replace placeholder with your retrieval / answer logic
+            # e.g. answer, retrieved_df = answer_question(user_question)
+            # st.write(answer)
+            # st.dataframe(retrieved_df)
             import time
-            time.sleep(2)  # simulate processing delay
-            
-            # Simulated answer
+            time.sleep(2)
             answer = f"Here is a narrative answer to your question: \"{user_question}\""
-
             st.success("Answer ready!")
             st.write(answer)
-
     else:
         if submit_button:
             st.warning("Please enter a question before submitting.")
-    # --- Milestone 5: Query input UI end ---
 
 else:
     st.info("👆 Please upload a CSV file to begin")
-
     with st.expander("Need a template?"):
         st.write("Your CSV should have these columns:")
         st.code("date,merchant,amount,category,currency", language="text")
