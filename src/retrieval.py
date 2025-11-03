@@ -18,20 +18,32 @@ class RetrieverService:
 
     def retrieve(self, question: str) -> pd.DataFrame:
         retriever = self.get_retriever()
-        # Use invoke to get docs
         docs = retriever.invoke(question)
-        records = []
+
+        safe_docs = []
         for doc in docs:
-            md = dict(doc.metadata or {})
-            # Ensure metadata keys exist with default if missing
-            md.setdefault("amount", None)
-            md.setdefault("date", None)
-            md.setdefault("merchant", None)
-            rec = {
-                "merchant": md["merchant"],
-                "amount": md["amount"],
-                "date": md["date"],
-                "text": doc.page_content
+            md = doc.metadata or {}
+            # Ensure required metadata exists
+            safe_md = {
+                "amount": md.get("amount", 0.0),
+                "date": md.get("date", ""),
+                "merchant": md.get("merchant", ""),
             }
-            records.append(rec)
-        return pd.DataFrame(records)
+            # Patch document metadata to prevent missing-key errors
+            safe_doc = Document(page_content=doc.page_content, metadata=safe_md)
+            safe_docs.append(safe_doc)
+
+        # Convert to dataframe for display
+        df = pd.DataFrame([
+            {
+                "merchant": d.metadata.get("merchant"),
+                "amount": d.metadata.get("amount"),
+                "date": d.metadata.get("date"),
+                "text": d.page_content
+            }
+            for d in safe_docs
+        ])
+
+        # Replace the internal docs list with safe_docs to fix missing metadata issue
+        self.docs = safe_docs
+        return df
