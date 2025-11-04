@@ -12,6 +12,29 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _infer_merchant_column(df: pd.DataFrame) -> str:
+    """Try to find a merchant-like column if 'merchant' doesn't exist."""
+    cols = df.columns.tolist()
+    
+    # Common merchant column aliases
+    merchant_aliases = [
+        'merchant', 'vendor', 'store', 'shop', 'business', 
+        'description', 'desc', 'transaction', 'payee', 'name',
+        'merchant_name', 'store_name', 'transaction_description'
+    ]
+    
+    for alias in merchant_aliases:
+        if alias in cols:
+            return alias
+    
+    # If no match, use first string column after date/amount
+    for col in cols:
+        if col not in ['date', 'amount'] and df[col].dtype == 'object':
+            return col
+    
+    return None
+
+
 def _clean_amount_column(series: pd.Series) -> pd.Series:
     def clean_value(v: Any):
         if pd.isna(v):
@@ -42,10 +65,20 @@ def parse_and_clean_csv(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]
 
     df_clean = _normalize_column_names(df)
 
-    required = {'date', 'merchant', 'amount'}
-    missing = required - set(df_clean.columns)
-    if missing:
-        raise ValueError(f"Missing required columns after normalization: {', '.join(sorted(missing))}")
+    # Check for date and amount first
+    required_base = {'date', 'amount'}
+    missing_base = required_base - set(df_clean.columns)
+    if missing_base:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing_base))}")
+
+    # Try to find merchant column
+    if 'merchant' not in df_clean.columns:
+        merchant_col = _infer_merchant_column(df_clean)
+        if merchant_col:
+            df_clean = df_clean.rename(columns={merchant_col: 'merchant'})
+        else:
+            # Create a default merchant column with "Unknown"
+            df_clean['merchant'] = 'unknown merchant'
 
     original_count = len(df_clean)
 
@@ -53,7 +86,8 @@ def parse_and_clean_csv(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]
 
     df_clean['amount'] = _clean_amount_column(df_clean['amount'])
 
-    df_clean['merchant'] = df_clean['merchant'].fillna('').astype(str).str.strip().str.lower()
+    df_clean['merchant'] = df_clean['merchant'].fillna('unknown merchant').astype(str).str.strip().str.lower()
+    df_clean['merchant'] = df_clean['merchant'].replace('', 'unknown merchant')
 
     df_clean = df_clean.dropna(subset=['date', 'amount']).reset_index(drop=True)
 
@@ -99,8 +133,11 @@ def validate_csv_structure(df: pd.DataFrame) -> Tuple[bool, str]:
         return False, "Uploaded file could not be parsed as a CSV table."
 
     cols = [str(c).strip().lower() for c in df.columns]
-    required_columns = ['date', 'merchant', 'amount']
+    
+    # Only require date and amount
+    required_columns = ['date', 'amount']
     missing = [c for c in required_columns if c not in cols]
     if missing:
         return False, f"Missing required columns: {', '.join(missing)}"
+    
     return True, ""

@@ -1,12 +1,9 @@
-# app.py
 import os
 import re
 import html
 import streamlit as st
 import pandas as pd
 from dotenv import load_dotenv
-
-# your project imports (keep these as before)
 from src.ingestion import parse_and_clean_csv, validate_csv_structure
 from src.embeddings import EmbeddingManager
 from src.retrieval import RetrieverService
@@ -17,7 +14,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 st.set_page_config(page_title="FinSense AI", page_icon="💰", layout="wide")
 
-# ---- Improved CSS ----
+# ---- CSS ----
 st.markdown("""
 <style>
     :root{
@@ -219,7 +216,7 @@ if not st.session_state['processed']:
                 st.success(f"✅ File loaded: **{len(df)}** rows, **{len(df.columns)}** columns")
                 
                 with st.expander("👀 Preview Your Data"):
-                    st.dataframe(df.head(20), use_container_width=True)
+                    st.dataframe(df.head(20), width='stretch')
                 
                 if st.button("🚀 Process & Analyze", type="primary", use_container_width=False):
                     with st.spinner("Processing your transactions..."):
@@ -293,7 +290,7 @@ if st.session_state['processed']:
     st.caption(f"📅 **Period:** {date_range.get('start')} to {date_range.get('end')}")
 
     with st.expander("📋 View All Transactions"):
-        st.dataframe(df_clean, use_container_width=True, height=400)
+        st.dataframe(df_clean, width='stretch', height=400)
 
     st.divider()
     
@@ -302,7 +299,7 @@ if st.session_state['processed']:
         st.header("💬 Chat with Your Data")
     with col_right:
         if st.session_state['chat_history']:
-            if st.button("🗑️ Clear", use_container_width=True):
+            if st.button("🗑️ Clear", width='stretch'):
                 reset_conversation()
 
     # ---- Chat history rendering (improved) ----
@@ -357,7 +354,7 @@ if st.session_state['processed']:
                 with st.expander(f"📊 Related Transactions ({len(chat['transactions'])} found)", expanded=False):
                     st.dataframe(
                         chat['transactions'],
-                        use_container_width=True,
+                        width='stretch',
                         height=min(300, len(chat['transactions']) * 35 + 38)
                     )
 
@@ -375,7 +372,7 @@ if st.session_state['processed']:
         for idx, (text, key) in enumerate(suggestions):
             col = col1 if idx % 2 == 0 else col2
             with col:
-                if st.button(text, key=f"sug_{key}", use_container_width=True):
+                if st.button(text, key=f"sug_{key}", width='stretch'):
                     st.session_state['suggestion_clicked'] = text.split("?")[0].split(" ", 1)[1] + "?"
                     st.rerun()
 
@@ -389,7 +386,7 @@ if st.session_state['processed']:
                 label_visibility="collapsed"
             )
         with col2:
-            submit_button = st.form_submit_button("Ask 🚀", use_container_width=True, type="primary")
+            submit_button = st.form_submit_button("Ask 🚀", width='stretch', type="primary")
 
     if submit_button and user_question.strip():
         with st.spinner("🤔 Thinking..."):
