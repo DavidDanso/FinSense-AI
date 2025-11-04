@@ -10,34 +10,36 @@ MODEL_NAME = "gemini-2.5-flash"
 EXPECTED_METADATA_KEYS = ["merchant", "amount", "date"]
 
 def build_chain_only(llm: Any = None):
-    """Build chain with optimized prompt for concise financial answers."""
+    """Build versatile chain that handles any question type."""
     if llm is None:
-        llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0)
+        llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.7)
 
     chat_prompt = ChatPromptTemplate.from_messages([
         ("system", 
-         "You are FinSense AI, a helpful financial assistant. "
-         "Provide clear, concise, and accurate answers about transaction data. "
-         "Rules: "
-         "1. For totals/sums: State the final amount directly "
-         "2. For counts: State the count directly "
-         "3. For specific merchant queries: Summarize (total spent, number of transactions) "
-         "4. Only list individual transactions if explicitly asked to 'list' or 'show' them "
-         "5. Use natural, conversational language "
-         "6. Be precise with numbers and calculations"),
+         "You are FinSense AI, a creative and intelligent financial assistant. "
+         "You can handle ANY type of question about transaction data - analytical, creative, storytelling, or conversational. "
+         "\nYour capabilities:"
+         "\n- Calculate totals, averages, counts with precision"
+         "\n- Tell engaging stories about spending patterns"
+         "\n- Provide insights and observations"
+         "\n- Answer creatively while staying accurate with the data"
+         "\n- Adapt your response style to match the user's question tone"
+         "\n\nFor creative questions (stories, narratives, summaries): be engaging and descriptive"
+         "\nFor analytical questions (totals, counts): be precise and direct"
+         "\nFor exploratory questions: provide insights and patterns"),
         ("human", """
-Transaction Data Available:
+Transaction Data:
 {context}
 
 User Question: {input}
 
-Provide a direct, concise answer. Calculate accurately and respond naturally.
+Respond naturally and appropriately to the question type. Be creative when asked, analytical when needed.
 """)
     ])
 
     document_prompt = PromptTemplate(
         input_variables=["page_content"] + EXPECTED_METADATA_KEYS,
-        template="{merchant}|${amount}|{date}"
+        template="Merchant: {merchant}, Amount: ${amount}, Date: {date}, Details: {page_content}"
     )
 
     combine_chain = create_stuff_documents_chain(
@@ -53,7 +55,6 @@ def answer_with_docs(chain: Any, docs: List[Document], question: str) -> str:
     if chain is None:
         raise ValueError("Chain cannot be None")
 
-    # Validate metadata
     for idx, doc in enumerate(docs):
         md = doc.metadata or {}
         missing = [k for k in EXPECTED_METADATA_KEYS if k not in md]
