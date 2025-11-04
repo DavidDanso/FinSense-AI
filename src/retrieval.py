@@ -23,7 +23,6 @@ class RetrieverService:
     def _extract_merchant_filter(self, question: str) -> str:
         """Extract merchant name from question if present."""
         q_lower = question.lower()
-        # Check if merchant name is mentioned
         for _, row in self.df_clean.iterrows():
             merchant = str(row.get('merchant', '')).lower()
             if merchant and merchant in q_lower:
@@ -42,7 +41,7 @@ class RetrieverService:
             ][['date', 'merchant', 'amount']].copy()
             return filtered
         
-        # If asking about "all" or "total" or "everything" - show all
+        # If asking about "all" or "total" - show all
         if any(word in q_lower for word in ['all', 'total', 'entire', 'overall', 'everything', 'complete']):
             return self.df_clean[['date', 'merchant', 'amount']].copy()
         
@@ -62,7 +61,7 @@ class RetrieverService:
         """
         Retrieve documents for LLM and determine display table.
         - LLM gets all transactions for aggregation queries
-        - Display table shows only relevant transactions based on question
+        - Display table shows only relevant transactions
         """
         is_aggregation = self._is_aggregation_query(question)
         

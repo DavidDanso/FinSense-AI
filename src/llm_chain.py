@@ -10,33 +10,34 @@ MODEL_NAME = "gemini-2.5-flash"
 EXPECTED_METADATA_KEYS = ["merchant", "amount", "date"]
 
 def build_chain_only(llm: Any = None):
-    """Build chain that processes documents with transaction metadata."""
+    """Build chain with optimized prompt for concise financial answers."""
     if llm is None:
         llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0)
 
     chat_prompt = ChatPromptTemplate.from_messages([
         ("system", 
-         "You are a financial assistant. You have access to transaction data. "
-         "When calculating totals or aggregations, use ALL transactions provided. "
-         "Be precise with calculations - sum all amounts carefully."),
+         "You are FinSense AI, a helpful financial assistant. "
+         "Provide clear, concise, and accurate answers about transaction data. "
+         "Rules: "
+         "1. For totals/sums: State the final amount directly "
+         "2. For counts: State the count directly "
+         "3. For specific merchant queries: Summarize (total spent, number of transactions) "
+         "4. Only list individual transactions if explicitly asked to 'list' or 'show' them "
+         "5. Use natural, conversational language "
+         "6. Be precise with numbers and calculations"),
         ("human", """
-Transaction Data:
+Transaction Data Available:
 {context}
 
-Question: {input}
+User Question: {input}
 
-Instructions: 
-- For total/sum questions: Add up ALL transaction amounts provided
-- For specific merchant questions: Filter and analyze relevant transactions
-- Always show your calculation if computing totals
+Provide a direct, concise answer. Calculate accurately and respond naturally.
 """)
     ])
 
     document_prompt = PromptTemplate(
         input_variables=["page_content"] + EXPECTED_METADATA_KEYS,
-        template=(
-            "Merchant: {merchant} | Amount: {amount} | Date: {date} | Detail: {page_content}\n"
-        )
+        template="{merchant}|${amount}|{date}"
     )
 
     combine_chain = create_stuff_documents_chain(
@@ -48,7 +49,7 @@ Instructions:
     return combine_chain
 
 def answer_with_docs(chain: Any, docs: List[Document], question: str) -> str:
-    """Invoke chain with documents and question."""
+    """Invoke chain with validated documents and return answer."""
     if chain is None:
         raise ValueError("Chain cannot be None")
 
