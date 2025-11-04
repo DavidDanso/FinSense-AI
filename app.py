@@ -1,101 +1,153 @@
-#app.py
-
+# app.py
+import os
+import re
+import html
 import streamlit as st
 import pandas as pd
-import os
+from dotenv import load_dotenv
+
+# your project imports (keep these as before)
 from src.ingestion import parse_and_clean_csv, validate_csv_structure
 from src.embeddings import EmbeddingManager
 from src.retrieval import RetrieverService
 from src.llm_chain import build_chain_only, answer_with_docs
-from langchain_core.documents import Document
-from dotenv import load_dotenv
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 st.set_page_config(page_title="FinSense AI", page_icon="💰", layout="wide")
 
-# Custom CSS for better UI
+# ---- Improved CSS ----
 st.markdown("""
 <style>
-    /* Main container spacing */
+    :root{
+        --bg-card: #0f1724;
+        --muted: #6b7280;
+        --accent: #667eea;
+        --accent-2: #7c3aed;
+        --ai-bg: #ffffff;
+        --ai-border: rgba(102,126,234,0.15);
+        --radius-lg: 14px;
+        --radius-sm: 8px;
+    }
+
     .main > div {
         padding-top: 2rem;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        color: #0f1724;
     }
-    
-    /* Question bubble - User */
-    .user-message {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+    .user-message{
+        display:block;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
         color: white;
-        padding: 1rem 1.5rem;
-        border-radius: 18px;
-        margin: 1rem 0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        padding: 0.8rem 1rem;
+        border-radius: 999px;
+        margin: 0.75rem 0;
+        box-shadow: 0 6px 18px rgba(102,126,234,0.12);
+        max-width: 90%;
+        word-break: break-word;
     }
-    
-    /* Answer bubble - AI */
+    .user-message strong{ font-weight:700; margin-right:0.6rem; }
+
     .ai-message {
-        background: #f8f9fa;
-        border-left: 4px solid #667eea;
-        padding: 1rem 1.5rem;
+        background: var(--ai-bg);
+        border: 1px solid var(--ai-border);
+        border-radius: var(--radius-lg);
+        padding: 1rem;
+        margin: 0.9rem 0;
+        color: #0b1220;
+        box-shadow: 0 6px 24px rgba(12,18,28,0.06);
+        max-width: 100%;
+    }
+
+    .ai-header {
+        display:flex;
+        gap:0.75rem;
+        align-items:center;
+        margin-bottom: 0.5rem;
+    }
+    .ai-avatar{
+        width:36px;
+        height:36px;
+        border-radius:10px;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        color:white;
+        font-weight:700;
+        box-shadow: 0 6px 18px rgba(124,58,237,0.12);
+    }
+    .ai-title{
+        font-weight:700;
+        font-size:1rem;
+        color:#0b1220;
+    }
+    .ai-sub{
+        font-size:0.85rem;
+        color: var(--muted);
+        margin-left:6px;
+    }
+
+    .ai-body{ 
+        line-height:1.6;
+        font-size:0.98rem;
+        color:#0b1220;
+    }
+
+    .amount-badge {
+        display:inline-block;
+        padding:0.18rem 0.5rem;
+        border-radius:999px;
+        background:rgba(102,126,234,0.1);
+        color:var(--accent);
+        font-weight:600;
+        font-size:0.92rem;
+        margin:0 0.15rem;
+    }
+
+    .ai-body ul, .ai-body ol {
+        padding-left:1.25rem;
+        margin:0.6rem 0;
+    }
+    .ai-body li { margin:0.35rem 0; }
+    .ai-body blockquote {
+        margin: 0.6rem 0;
+        padding: 0.6rem 1rem;
+        background: #f8fafc;
+        border-left: 3px solid var(--accent);
+        color: #111827;
+        border-radius:8px;
+    }
+    .ai-body pre, .ai-body code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+        background: #0f1724;
+        color: #e6eef8;
+        padding: 0.6rem;
         border-radius: 8px;
-        margin: 1rem 0;
-        color: #1f2937;
+        overflow:auto;
+        font-size:0.85rem;
     }
-    
-    /* Metric cards */
-    [data-testid="stMetricValue"] {
-        font-size: 1.8rem;
-        font-weight: 700;
-    }
-    
-    /* Section headers */
-    h1, h2, h3 {
-        color: #1f2937;
-    }
-    
-    /* Input field styling */
-    .stTextInput input {
-        border-radius: 8px;
-        border: 2px solid #e5e7eb;
-        padding: 0.75rem;
-        font-size: 1rem;
-    }
-    
-    .stTextInput input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-    
-    /* Button styling */
-    .stButton button {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s;
-    }
-    
-    .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    
-    /* Expander styling */
+
+    .ai-body h2 { font-size:1.05rem; margin-top:0.6rem; }
+    .ai-body h3 { font-size:0.98rem; margin-top:0.5rem; color:#0b1220; }
+
+    .ai-meta { font-size:0.82rem; color:var(--muted); margin-top:0.6rem; }
+
     .streamlit-expanderHeader {
         background-color: #f8f9fa;
         border-radius: 8px;
         font-weight: 600;
     }
-    
-    /* Divider spacing */
-    hr {
-        margin: 2rem 0;
-        border: none;
-        border-top: 2px solid #e5e7eb;
-    }
+
+    .stButton button { border-radius:8px; }
+
+    .spacer { height: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Session state defaults
+# ---- Session state defaults ----
 defaults = {
     'processed': False,
     'df_clean': None,
@@ -133,14 +185,12 @@ def _format_amount(amount: float, currency: str) -> str:
     return f"{cur} {amount:,.2f}"
 
 def reset_conversation():
-    """Reset chat history"""
     st.session_state['chat_history'] = []
     st.rerun()
 
 # Header
 st.title("💰 FinSense AI")
 st.caption("Your intelligent financial assistant powered by AI")
-
 st.divider()
 
 # Upload Section
@@ -169,7 +219,7 @@ if not st.session_state['processed']:
                 st.success(f"✅ File loaded: **{len(df)}** rows, **{len(df.columns)}** columns")
                 
                 with st.expander("👀 Preview Your Data"):
-                    st.dataframe(df.head(20), width='stretch')
+                    st.dataframe(df.head(20), use_container_width=True)
                 
                 if st.button("🚀 Process & Analyze", type="primary", use_container_width=False):
                     with st.spinner("Processing your transactions..."):
@@ -208,8 +258,6 @@ if not st.session_state['processed']:
     
     else:
         st.info("💡 Upload a CSV file to unlock powerful financial insights")
-        
-        # Feature showcase
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown("#### 📊 Smart Analysis")
@@ -224,13 +272,11 @@ if not st.session_state['processed']:
 # Main App - Only show if data is processed
 if st.session_state['processed']:
     
-    # Summary Section
     st.header("📊 Transaction Overview")
     df_clean = st.session_state['df_clean']
     summary = st.session_state['summary']
     currency = _choose_currency(df_clean, summary)
 
-    # Metrics in columns
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Transactions", f"{summary.get('total_transactions', 0):,}")
@@ -247,67 +293,92 @@ if st.session_state['processed']:
     st.caption(f"📅 **Period:** {date_range.get('start')} to {date_range.get('end')}")
 
     with st.expander("📋 View All Transactions"):
-        st.dataframe(df_clean, width='stretch', height=400)
+        st.dataframe(df_clean, use_container_width=True, height=400)
 
     st.divider()
     
-    # Chat Interface
     col_left, col_right = st.columns([5, 1])
     with col_left:
         st.header("💬 Chat with Your Data")
     with col_right:
         if st.session_state['chat_history']:
-            if st.button("🗑️ Clear", width='stretch'):
+            if st.button("🗑️ Clear", use_container_width=True):
                 reset_conversation()
 
-    # Display chat history
+    # ---- Chat history rendering (improved) ----
+    try:
+        import markdown as md  # optional: pip install markdown
+    except Exception:
+        md = None
+
+    def render_answer_as_html(raw_markdown: str) -> str:
+        if not raw_markdown:
+            return ""
+        if md:
+            html_body = md.markdown(raw_markdown, extensions=['extra', 'nl2br', 'sane_lists', 'fenced_code'])
+        else:
+            html_body = "<p>" + html.escape(raw_markdown).replace("\n", "<br>") + "</p>"
+
+        # highlight currency-like amounts
+        def amt_repl(m):
+            return f'<span class="amount-badge">{m.group(0)}</span>'
+
+        # regex: look for currency symbols followed by amounts
+        html_body = re.sub(r'(?<!\w)(?:\$|£|€|₹|₵)\s?\d{1,3}(?:[,\d{3}]*)?(?:\.\d{1,2})?', amt_repl, html_body)
+        return html_body
+
     if st.session_state['chat_history']:
         for i, chat in enumerate(st.session_state['chat_history']):
-            # User question
+            # User bubble
             st.markdown(f"""
             <div class="user-message">
-                <strong>You:</strong> {chat['question']}
+                <strong>You:</strong> {html.escape(chat['question'])}
             </div>
             """, unsafe_allow_html=True)
-            
-            # AI answer
+
+            # AI card with converted body
+            html_answer = render_answer_as_html(chat.get('answer', ''))
             st.markdown(f"""
             <div class="ai-message">
-                <strong>FinSense AI:</strong><br><br>{chat['answer']}
+                <div class="ai-header">
+                    <div class="ai-avatar">FA</div>
+                    <div>
+                        <div class="ai-title">FinSense AI <span class="ai-sub">• smart summary</span></div>
+                        <div class="ai-meta">Answer generated from your uploaded transactions</div>
+                    </div>
+                </div>
+                <div class="ai-body">
+                    {html_answer}
+                </div>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Show relevant transactions if available
+
             if not chat['transactions'].empty:
                 with st.expander(f"📊 Related Transactions ({len(chat['transactions'])} found)", expanded=False):
                     st.dataframe(
                         chat['transactions'],
-                        width='stretch',
+                        use_container_width=True,
                         height=min(300, len(chat['transactions']) * 35 + 38)
                     )
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-    
+
+            st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
+
     else:
-        # Suggestions when no chat history
         st.markdown("### 💡 Try asking me:")
         col1, col2 = st.columns(2)
-        
         suggestions = [
             ("💰 What's my total spending?", "total_spend"),
             ("🏪 How much did I spend at Starbucks?", "starbucks"),
             ("📈 Show my top 5 expenses", "top_5"),
             ("🔍 Find transactions over $100", "over_100"),
         ]
-        
         for idx, (text, key) in enumerate(suggestions):
             col = col1 if idx % 2 == 0 else col2
             with col:
-                if st.button(text, key=f"sug_{key}", width='stretch'):
+                if st.button(text, key=f"sug_{key}", use_container_width=True):
                     st.session_state['suggestion_clicked'] = text.split("?")[0].split(" ", 1)[1] + "?"
                     st.rerun()
 
-    # Input form
     st.markdown("---")
     with st.form(key="question_form", clear_on_submit=True):
         col1, col2 = st.columns([5, 1])
@@ -318,7 +389,7 @@ if st.session_state['processed']:
                 label_visibility="collapsed"
             )
         with col2:
-            submit_button = st.form_submit_button("Ask 🚀", width='stretch', type="primary")
+            submit_button = st.form_submit_button("Ask 🚀", use_container_width=True, type="primary")
 
     if submit_button and user_question.strip():
         with st.spinner("🤔 Thinking..."):
@@ -326,13 +397,13 @@ if st.session_state['processed']:
                 embedding_manager = st.session_state['embedding_manager']
                 df_clean = st.session_state['df_clean']
                 summary = st.session_state['summary']
-                
+
                 retriever_service = RetrieverService(
                     embedding_manager=embedding_manager,
                     df_clean=df_clean,
                     summary=summary
                 )
-                
+
                 safe_docs, df_retrieved = retriever_service.retrieve(user_question)
 
                 chain = build_chain_only()
@@ -349,7 +420,6 @@ if st.session_state['processed']:
             except Exception as e:
                 st.error(f"❌ Error: {e}")
 
-    # Handle suggestion clicks
     if 'suggestion_clicked' in st.session_state:
         user_question = st.session_state['suggestion_clicked']
         del st.session_state['suggestion_clicked']

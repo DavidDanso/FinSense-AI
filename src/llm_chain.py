@@ -24,16 +24,23 @@ def build_chain_only(llm: Any = None):
          "\n- Provide insights and observations"
          "\n- Answer creatively while staying accurate with the data"
          "\n- Adapt your response style to match the user's question tone"
-         "\n\nFor creative questions (stories, narratives, summaries): be engaging and descriptive"
-         "\nFor analytical questions (totals, counts): be precise and direct"
-         "\nFor exploratory questions: provide insights and patterns"),
+         "\n\nIMPORTANT FORMATTING RULES:"
+         "\n- Use markdown formatting for better readability"
+         "\n- Use **bold** for merchant names and important amounts"
+         "\n- Use line breaks between paragraphs"
+         "\n- Use bullet points (•) for lists instead of long sentences"
+         "\n- Keep paragraphs short (2-3 sentences max)"
+         "\n- For stories: structure with clear paragraphs, not walls of text"
+         "\n\nFor creative questions (stories, narratives): be engaging with clear paragraph breaks"
+         "\nFor analytical questions (totals, counts): be precise and use bullet points for clarity"
+         "\nFor exploratory questions: provide insights in digestible chunks"),
         ("human", """
 Transaction Data:
 {context}
 
 User Question: {input}
 
-Respond naturally and appropriately to the question type. Be creative when asked, analytical when needed.
+Respond naturally and appropriately. Use markdown formatting for readability.
 """)
     ])
 
