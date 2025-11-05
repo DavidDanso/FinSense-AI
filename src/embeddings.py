@@ -16,7 +16,6 @@ load_dotenv()
 
 class EmbeddingManager:
     def __init__(self, google_api_key: str):
-        """Initialize with Google embeddings and placeholder for vector store."""
         if not google_api_key:
             raise ValueError("google_api_key must be provided to EmbeddingManager")
 
@@ -28,7 +27,6 @@ class EmbeddingManager:
         self.vector_store = None
 
     def _serialize_date(self, date_value: Any) -> Any:
-        """Convert date or timestamp types to ISO string (or fallback)."""
         if date_value is None:
             return None
         if pd.isna(date_value):
@@ -42,7 +40,6 @@ class EmbeddingManager:
             return str(date_value)
 
     def _serialize_amount(self, amount_value: Any) -> Any:
-        """Convert numeric or string amount to float or int, or None."""
         if amount_value is None:
             return None
         try:
@@ -54,22 +51,34 @@ class EmbeddingManager:
             return None
 
     def _make_text_for_embedding(self, item: Dict[Any, Any]) -> str:
-        """Compose a short text from merchant + description for embedding."""
         merchant = item.get("merchant", "") or ""
         description = item.get("description", "") or ""
-        text = f"{merchant} {description}".strip()
+        reference = item.get("reference", "") or item.get("transaction_reference", "") or item.get("ref", "")
+        
+        text_parts = [merchant, description, reference]
+        text = " ".join([str(p) for p in text_parts if p]).strip()
+        
         if text == "":
             text = "unknown"
         return text
 
     def _make_metadata(self, item: Dict[Any, Any]) -> Dict[str, Any]:
-        """Prepare metadata dict for embedding record."""
         metadata = {
             "date": self._serialize_date(item.get("date", None)),
             "merchant": str(item.get("merchant", "")),
             "amount": self._serialize_amount(item.get("amount", None))
         }
-        # you can add more metadata fields as needed
+        
+        # Add reference if exists
+        reference = item.get("reference", "") or item.get("transaction_reference", "") or item.get("ref", "")
+        if reference:
+            metadata["reference"] = str(reference)
+        
+        # Add any other useful columns
+        for key in ['category', 'transaction_type', 'account_name', 'running_balance']:
+            if key in item and item[key]:
+                metadata[key] = str(item[key])
+        
         return metadata
 
     def create_embeddings(
@@ -78,10 +87,6 @@ class EmbeddingManager:
         batch_size: int = 100,
         persist_path: str = None
     ) -> None:
-        """
-        Generate embeddings in batches for large data.
-        Optionally persist vector store incrementally if persist_path given.
-        """
         n = len(data)
         if n == 0:
             return
@@ -92,13 +97,10 @@ class EmbeddingManager:
             end = min((i + 1) * batch_size, n)
             batch = data[start:end]
 
-            # Prepare texts & metadata lists
             texts = [self._make_text_for_embedding(item) for item in batch]
             metadatas = [self._make_metadata(item) for item in batch]
 
-            # Add embeddings & metadata to vector_store
             if self.vector_store is None:
-                # First batch: create vector_store from texts
                 try:
                     self.vector_store = FAISS.from_texts(
                         texts=texts,
@@ -106,25 +108,21 @@ class EmbeddingManager:
                         embeddings=self.embeddings,
                     )
                 except TypeError:
-                    # fallback signature
                     self.vector_store = FAISS.from_texts(
                         texts, self.embeddings, metadatas=metadatas
                     )
             else:
-                # For subsequent batches: add more docs
                 self.vector_store.add_texts(
                     texts=texts,
                     metadatas=metadatas
                 )
 
-            # Persist after each batch if path provided
             if persist_path:
                 self.save_vector_store(persist_path)
 
             print(f"Batch {i+1}/{num_batches} done: items {start}–{end - 1}")
 
     def save_vector_store(self, path: str) -> None:
-        """Save FAISS vector store to disk atomically."""
         if self.vector_store is None:
             raise RuntimeError("No vector store to save.")
         path = os.path.abspath(path)
@@ -147,7 +145,6 @@ class EmbeddingManager:
             raise RuntimeError(f"Failed to save vector store: {e}") from e
 
     def load_vector_store(self, path: str) -> None:
-        """Load existing FAISS vector store from disk, handling compatibility."""
         path = os.path.abspath(path)
         if not os.path.isdir(path):
             raise FileNotFoundError(f"Vector store not found: {path}")
@@ -168,7 +165,6 @@ class EmbeddingManager:
             ) from e
 
     def get_retriever(self, **kwargs):
-        """Return a retriever from the FAISS vector store."""
         if self.vector_store is None:
             raise RuntimeError("Vector store is not loaded/initialized.")
         return self.vector_store.as_retriever(**kwargs)

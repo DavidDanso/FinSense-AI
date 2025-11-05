@@ -13,7 +13,6 @@ class RetrieverService:
         self.k = k
 
     def _is_broad_query(self, question: str) -> bool:
-        """Detect if query needs comprehensive context (stories, summaries, patterns)."""
         q_lower = question.lower()
         broad_keywords = [
             'story', 'tell me', 'narrative', 'summary', 'overview', 'describe',
@@ -24,7 +23,6 @@ class RetrieverService:
         return any(keyword in q_lower for keyword in broad_keywords)
 
     def _extract_merchant_filter(self, question: str) -> str:
-        """Extract specific merchant name from question."""
         q_lower = question.lower()
         for _, row in self.df_clean.iterrows():
             merchant = str(row.get('merchant', '')).lower()
@@ -33,26 +31,35 @@ class RetrieverService:
         return None
 
     def _should_show_display_table(self, question: str) -> bool:
-        """Determine if transaction table should be shown."""
         q_lower = question.lower()
-        no_table_keywords = ['story', 'tell me', 'narrative', 'describe', 'what', 'why', 'how']
+        no_table_keywords = ['story', 'tell me', 'narrative', 'describe']
         if any(keyword in q_lower for keyword in no_table_keywords):
             return False
         return True
 
+    def _get_extra_columns(self) -> List[str]:
+        """Get list of extra columns to preserve beyond date/merchant/amount."""
+        base_cols = {'date', 'merchant', 'amount', 'is_suspicious'}
+        extra = [col for col in self.df_clean.columns if col not in base_cols]
+        return extra
+
     def _filter_display_data(self, question: str) -> pd.DataFrame:
-        """Filter display data based on question context."""
         q_lower = question.lower()
+        
+        # Get columns to display
+        display_cols = ['date', 'merchant', 'amount']
+        extra_cols = self._get_extra_columns()
+        display_cols.extend([col for col in extra_cols if col in self.df_clean.columns])
         
         merchant_filter = self._extract_merchant_filter(question)
         if merchant_filter:
             filtered = self.df_clean[
                 self.df_clean['merchant'].str.lower().str.contains(merchant_filter, na=False)
-            ][['date', 'merchant', 'amount']].copy()
+            ][display_cols].copy()
             return filtered
         
         if any(word in q_lower for word in ['all', 'total', 'entire', 'overall', 'everything']):
-            return self.df_clean[['date', 'merchant', 'amount']].copy()
+            return self.df_clean[display_cols].copy()
         
         return pd.DataFrame()
 
@@ -66,7 +73,6 @@ class RetrieverService:
         return self.embedding_manager.vector_store.as_retriever(search_kwargs={'k': self.k})
 
     def retrieve(self, question: str) -> Tuple[List[Document], pd.DataFrame]:
-        """Smart retrieval that adapts to question type."""
         is_broad = self._is_broad_query(question)
         show_table = self._should_show_display_table(question)
         
@@ -74,19 +80,31 @@ class RetrieverService:
             safe_docs = []
             for _, row in self.df_clean.iterrows():
                 merchant = str(row.get('merchant', ''))
-                description = str(row.get('description', '')) if 'description' in row else ''
                 amount = float(row.get('amount', 0.0))
                 date = str(row.get('date', ''))
                 
-                text = f"{merchant} - ${amount} on {date}"
-                if description:
-                    text += f" ({description})"
+                # Build text with all available info
+                text_parts = [f"{merchant} - ${amount} on {date}"]
+                
+                # Add reference if exists
+                for ref_col in ['reference', 'transaction_reference', 'ref']:
+                    if ref_col in row and row[ref_col]:
+                        text_parts.insert(0, f"Ref: {row[ref_col]}")
+                        break
+                
+                text = " ".join(text_parts)
                 
                 metadata = {
                     "date": date,
                     "merchant": merchant,
                     "amount": amount
                 }
+                
+                # Add all extra fields to metadata
+                for col in self._get_extra_columns():
+                    if col in row and pd.notna(row[col]):
+                        metadata[col] = str(row[col])
+                
                 safe_docs.append(Document(page_content=text, metadata=metadata))
             
             summary_text = (
@@ -118,18 +136,31 @@ class RetrieverService:
                     "date": md.get("date", ""),
                     "merchant": md.get("merchant", ""),
                 }
+                
+                # Preserve extra fields
+                for key in md:
+                    if key not in safe_md:
+                        safe_md[key] = md[key]
+                
                 safe_doc = Document(page_content=doc.page_content, metadata=safe_md)
                 safe_docs.append(safe_doc)
             
             if show_table:
-                df_display = pd.DataFrame([
-                    {
+                # Build display dataframe with extra columns
+                display_data = []
+                for d in safe_docs:
+                    row_data = {
                         "date": d.metadata.get("date"),
                         "merchant": d.metadata.get("merchant"),
                         "amount": d.metadata.get("amount")
                     }
-                    for d in safe_docs
-                ])
+                    # Add extra columns
+                    for key in d.metadata:
+                        if key not in row_data:
+                            row_data[key] = d.metadata[key]
+                    display_data.append(row_data)
+                
+                df_display = pd.DataFrame(display_data)
             else:
                 df_display = pd.DataFrame()
 
